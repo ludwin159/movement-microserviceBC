@@ -31,8 +31,22 @@ public class Payment {
     @NotNull
     private TypeCreditProduct typeCreditProduct;
 
+    private Integer monthCorresponding;
+
+    private Integer yearCorresponding;
+
+    private Double penaltyFee;
+
+    @NotNull
+    private String idPayer;
+    @NotNull
+    private TypePayer typePayer;
+
     public enum TypeCreditProduct {
         CREDIT_CARD, CREDIT, UNSUPPORTED
+    }
+    public enum TypePayer {
+        EXTERNAL, CLIENT, BANK_ACCOUNT
     }
     public Payment() {
         this.datePayment = LocalDateTime.now();

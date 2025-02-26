@@ -10,6 +10,7 @@ import com.movements.movementsmicroservice.exceptions.ResourceNotFoundException;
 import com.movements.movementsmicroservice.model.Payment;
 import com.movements.movementsmicroservice.repository.PaymentRepository;
 import com.movements.movementsmicroservice.service.impl.PaymentServiceImp;
+import org.joda.time.DateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+
+import java.time.*;
+import java.util.List;
 
 import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
@@ -32,6 +36,8 @@ class PaymentServiceImpTest {
     private CreditCardService creditCardService;
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private Clock clock;
 
     private Payment payment1, payment2;
     private CreditDto credit1;
@@ -46,20 +52,28 @@ class PaymentServiceImpTest {
         payment1.setIdProductCredit("CREDIT001");
         payment1.setAmount(30.0);
         payment1.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("");
 
         payment2 = new Payment();
         payment2.setId("PAYMENT002");
         payment2.setIdProductCredit("CREDIT_CARD001");
         payment2.setAmount(25.0);
         payment2.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT_CARD);
+        payment2.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment2.setIdPayer("");
 
         credit1 = new CreditDto(
                 "CREDIT001",
                 "clientN001",
                 500.0,
-                200.0,
-                15.0,
-                CreditDto.TypeCredit.PERSONAL_CREDIT
+                500.0,
+                0.5,
+                CreditDto.TypeCredit.PERSONAL_CREDIT,
+                LocalDate.of(2025, 2, 23),
+                LocalDate.of(2025, 3, 2),
+                12,
+                45.13
         );
         credit1.setId("CREDIT001");
 
@@ -69,6 +83,7 @@ class PaymentServiceImpTest {
         creditCard1.setLimitCredit(1000.0);
         creditCard1.setAvailableBalance(500.0);
         creditCard1.setInterestRate(3.0);
+        creditCard1.setTotalDebt(500.0);
 
         personalClient = new ClientDto();
         personalClient.setId("clientN001");
@@ -88,9 +103,139 @@ class PaymentServiceImpTest {
     }
 
     @Test
+    @DisplayName("Create a payment credit with pending balance is zero")
+    void createPaymentWithAmountZeroTest() {
+        payment1 = new Payment();
+        payment1.setId("PAYMENT001");
+        payment1.setIdProductCredit("CREDIT001");
+        payment1.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("");
+        String creditId = credit1.getId();
+        credit1.setPendingBalance(0.0);
+        // Given
+        when(creditService.findById(creditId)).thenReturn(Mono.just(credit1));
+        // When
+        Mono<Payment> paymentMono = paymentService.create(payment1);
+        // Then
+        StepVerifier.create(paymentMono)
+                .expectError(InvalidPayException.class)
+                .verify();
+        verify(creditService).findById(creditId);
+    }
+
+    @Test
+    @DisplayName("Create a payment credit with monthlyFee is different")
+    void createPaymentCreditWithAmountDifferentTest() {
+        ZoneId zone = ZoneId.of("UTC");
+        Instant instant = Instant.parse("2025-05-02T23:55:00Z");
+        Clock fixedClock = Clock.fixed(instant, zone);
+        when(clock.instant()).thenReturn(fixedClock.instant());
+        when(clock.getZone()).thenReturn(fixedClock.getZone());
+        payment1 = new Payment();
+        payment1.setId("PAYMENT001");
+        payment1.setIdProductCredit("CREDIT001");
+        payment1.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setYearCorresponding(2025);
+        payment1.setMonthCorresponding(3);
+        payment1.setDatePayment(LocalDateTime.of(2025, 3, 2, 5, 0));
+        payment1.setAmount(45.13);
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("");
+
+        payment2 = new Payment();
+        payment2.setId("PAYMENT002");
+        payment2.setIdProductCredit("CREDIT001");
+        payment2.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment2.setYearCorresponding(2025);
+        payment2.setMonthCorresponding(4);
+        payment1.setDatePayment(LocalDateTime.of(2025, 4, 2, 5, 0));
+        payment2.setAmount(45.13);
+        payment2.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment2.setIdPayer("");
+
+        Payment paymentNew = new Payment();
+        paymentNew.setId("PAYMENT003");
+        paymentNew.setIdProductCredit("CREDIT001");
+        paymentNew.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        paymentNew.setYearCorresponding(2025);
+        paymentNew.setMonthCorresponding(5);
+        paymentNew.setAmount(45.19);
+        paymentNew.setDatePayment(LocalDateTime.now(clock));
+        paymentNew.setTypePayer(Payment.TypePayer.EXTERNAL);
+        paymentNew.setIdPayer("");
+
+        String creditId = credit1.getId();
+        credit1.setPayments(List.of(payment1, payment2));
+        // Given
+        when(creditService.findById(creditId)).thenReturn(Mono.just(credit1));
+        // When
+        Mono<Payment> paymentMono = paymentService.create(paymentNew);
+        // Then
+        StepVerifier.create(paymentMono)
+                .expectError(InvalidPayException.class)
+                .verify();
+        verify(creditService).findById(creditId);
+    }
+
+    @Test
+    @DisplayName("Create a payment credit with existing pay")
+    void createPaymentCreditWithExistingPayTest() {
+        payment1 = new Payment();
+        payment1.setId("PAYMENT001");
+        payment1.setIdProductCredit("CREDIT001");
+        payment1.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setDatePayment(LocalDateTime.of(2025, 3, 2, 5, 0));
+        payment1.setYearCorresponding(2025);
+        payment1.setMonthCorresponding(3);
+        payment1.setAmount(45.13);
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("");
+
+        payment2 = new Payment();
+        payment2.setId("PAYMENT002");
+        payment2.setIdProductCredit("CREDIT001");
+        payment2.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setDatePayment(LocalDateTime.of(2025, 4, 2, 5, 0));
+        payment2.setYearCorresponding(2025);
+        payment2.setMonthCorresponding(4);
+        payment2.setAmount(45.13);
+        payment2.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment2.setIdPayer("");
+
+        Payment paymentNew = new Payment();
+        paymentNew.setId("PAYMENT003");
+        paymentNew.setIdProductCredit("CREDIT001");
+        paymentNew.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        paymentNew.setDatePayment(LocalDateTime.of(2025, 4, 6, 5, 0));
+        paymentNew.setYearCorresponding(2025);
+        paymentNew.setMonthCorresponding(4);
+        paymentNew.setAmount(45.13);
+        paymentNew.setTypePayer(Payment.TypePayer.EXTERNAL);
+        paymentNew.setIdPayer("");
+
+        String creditId = credit1.getId();
+        credit1.setPayments(List.of(payment1, payment2));
+        // Given
+        when(creditService.findById(creditId)).thenReturn(Mono.just(credit1));
+        // When
+        Mono<Payment> paymentMono = paymentService.create(paymentNew);
+        // Then
+        StepVerifier.create(paymentMono)
+                .expectError(InvalidPayException.class)
+                .verify();
+        verify(creditService).findById(creditId);
+    }
+    @Test
     @DisplayName("Create a payment credit")
     void createPaymentCreditTest() {
+        ZoneId zone = ZoneId.of("UTC");
+        Instant instant = Instant.parse("2025-02-20T23:55:00Z");
+        Clock fixedClock = Clock.fixed(instant, zone);
+        when(clock.instant()).thenReturn(fixedClock.instant());
+        when(clock.getZone()).thenReturn(fixedClock.getZone());
 
+        payment1.setAmount(45.13);
         String creditId = credit1.getId();
         // Given
         when(creditService.findById(creditId)).thenReturn(Mono.just(credit1));
@@ -112,7 +257,7 @@ class PaymentServiceImpTest {
     void createPaymentCreditCardTest() {
 
         String creditCardId = creditCard1.getId();
-
+        payment2.setAmount(500.0);
         // Given
         when(creditCardService.findById(creditCardId)).thenReturn(Mono.just(creditCard1));
         when(creditCardService.update(creditCardId, creditCard1)).thenReturn(Mono.just(creditCard1));
@@ -235,4 +380,33 @@ class PaymentServiceImpTest {
                 .verifyComplete();
         verify(paymentRepository).findAllByIdProductCredit(idProductCredit);
     }
+
+    @Test
+    @DisplayName("Pay external type and id payer not empty")
+    void payExternalAndIdNotEmpty() {
+        String idProductCredit = "ALLCREDITS_123";
+        // Given
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("asdfasdf21a2s");
+        // When
+        Mono<Payment> payment = paymentService.create(payment1);
+        // Then
+        StepVerifier.create(payment)
+                .expectError(InvalidPayException.class)
+                .verify();
+    }
+//    @Test
+//    @DisplayName("Pay external type and id payer not empty")
+//    void payExternalAndIdNotEmpty() {
+//        String idProductCredit = "ALLCREDITS_123";
+//        // Given
+//        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+//        payment1.setIdPayer("asdfasdf21a2s");
+//        // When
+//        Mono<Payment> payment = paymentService.create(payment1);
+//        // Then
+//        StepVerifier.create(payment)
+//                .expectError(InvalidPayException.class)
+//                .verify();
+//    }
 }

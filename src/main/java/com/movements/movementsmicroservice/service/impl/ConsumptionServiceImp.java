@@ -12,6 +12,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Comparator;
+import java.util.List;
 
 @Service
 public class ConsumptionServiceImp implements ConsumptionService {
@@ -78,5 +79,15 @@ public class ConsumptionServiceImp implements ConsumptionService {
     public Flux<Consumption> findAllConsumptionsByIdCreditCardAndSortByDate(String id) {
         return consumptionRepository.findAllByIdCreditCard(id)
                 .sort(Comparator.comparing(Consumption::getDateConsumption).reversed());
+    }
+
+    @Override
+    public Flux<Consumption> findByIdCreditCardAndBilledFalse(String idCreditCard) {
+        return consumptionRepository.findByIdCreditCardAndBilledFalse(idCreditCard);
+    }
+
+    @Override
+    public Flux<Consumption> saveAll(List<Consumption> consumptions) {
+        return consumptionRepository.saveAll(consumptions);
     }
 }

@@ -30,9 +30,21 @@ public class Consumption {
     private LocalDateTime dateConsumption;
 
     @NotNull
+    private Integer billingMonth;
+
+    @NotNull
+    private Integer billingYear;
+
+    @NotNull
+    private Boolean billed;
+
+    @NotNull
     private String description;
 
     public Consumption() {
         this.dateConsumption = LocalDateTime.now();
+        this.billingMonth = dateConsumption.getMonthValue();
+        this.billingYear = dateConsumption.getYear();
+        this.billed = false;
     }
 }
