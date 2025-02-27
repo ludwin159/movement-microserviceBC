@@ -45,7 +45,7 @@ public class Movement {
 
 
     public static enum TypeMovement {
-        DEPOSIT, WITHDRAWAL, TRANSFER, UNSUPPORTED
+        DEPOSIT, WITHDRAWAL, TRANSFER, UNSUPPORTED, PAY_CREDIT
     }
 
     public Movement() {

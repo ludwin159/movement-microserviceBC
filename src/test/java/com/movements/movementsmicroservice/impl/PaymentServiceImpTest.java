@@ -395,18 +395,18 @@ class PaymentServiceImpTest {
                 .expectError(InvalidPayException.class)
                 .verify();
     }
-//    @Test
-//    @DisplayName("Pay external type and id payer not empty")
-//    void payExternalAndIdNotEmpty() {
-//        String idProductCredit = "ALLCREDITS_123";
-//        // Given
-//        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
-//        payment1.setIdPayer("asdfasdf21a2s");
-//        // When
-//        Mono<Payment> payment = paymentService.create(payment1);
-//        // Then
-//        StepVerifier.create(payment)
-//                .expectError(InvalidPayException.class)
-//                .verify();
-//    }
+    @Test
+    @DisplayName("Pay external type and id payer not empty")
+    void payExternalAndIdNotEmpty() {
+        String idProductCredit = "ALLCREDITS_123";
+        // Given
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
+        payment1.setIdPayer("asdfasdf21a2s");
+        // When
+        Mono<Payment> payment = paymentService.create(payment1);
+        // Then
+        StepVerifier.create(payment)
+                .expectError(InvalidPayException.class)
+                .verify();
+    }
 }

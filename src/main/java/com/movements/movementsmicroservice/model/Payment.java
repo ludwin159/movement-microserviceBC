@@ -38,6 +38,7 @@ public class Payment {
     private Double penaltyFee;
 
     @NotNull
+    @Size(min = 8)
     private String idPayer;
     @NotNull
     private TypePayer typePayer;
@@ -46,7 +47,7 @@ public class Payment {
         CREDIT_CARD, CREDIT, UNSUPPORTED
     }
     public enum TypePayer {
-        EXTERNAL, CLIENT, BANK_ACCOUNT
+        EXTERNAL, CLIENT, DEBIT_CARD
     }
     public Payment() {
         this.datePayment = LocalDateTime.now();

@@ -230,12 +230,16 @@ public class MovementServiceImp implements MovementService {
         double commission = amountMovement * commissionPercentage;
         double balanceActual = bankAccount.getBalance();
 
-        if ((movement.getTypeMovement() == WITHDRAWAL) && (balanceActual - amountMovement + commission) < 0 ) {
+        if (isWithdrawalOrPaymentMovement(movement) && (balanceActual - (amountMovement + commission)) < 0 ) {
             return false;
         }
         movement.setCommissionAmount(commission);
         bankAccount.setBalance(balanceActual - commission);
         return true;
+    }
+
+    private boolean isWithdrawalOrPaymentMovement(Movement movement) {
+        return (movement.getTypeMovement() == WITHDRAWAL) || (movement.getTypeMovement() == PAY_CREDIT);
     }
 
     @Override
@@ -247,12 +251,19 @@ public class MovementServiceImp implements MovementService {
                     if (isMovementWithTransfer(movementFound))
                         return Mono.error(
                                 new UnsupportedMovementException("Transfer update is not supported yet."));
+                    if (isMovementPayCredit(movementFound))
+                        return Mono.error(
+                                new UnsupportedMovementException("Payments update is not supported yet."));
                     return updateMovementWithBankAccount(movementFound, movement);
                 });
     }
 
     private boolean isMovementWithTransfer(Movement movement) {
         return movement.getIdTransfer() != null && !movement.getIdTransfer().isEmpty();
+    }
+
+    private boolean isMovementPayCredit(Movement movement) {
+        return movement.getTypeMovement() == PAY_CREDIT;
     }
 
     @Override
@@ -353,7 +364,7 @@ public class MovementServiceImp implements MovementService {
     }
 
     private Mono<BankAccountDto> applyMovementToAccount(Movement movement, BankAccountDto bankAccount) {
-        if (movement.getTypeMovement() == WITHDRAWAL) {
+        if (isWithdrawalOrPaymentMovement(movement)) {
             if (bankAccount.getBalance() < movement.getAmount()) {
                 return Mono.error(new InsufficientBalance("There is not enough balance in your account."));
             }

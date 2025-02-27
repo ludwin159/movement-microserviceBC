@@ -1,16 +1,13 @@
 package com.movements.movementsmicroservice.service.impl;
 
-import com.movements.movementsmicroservice.DTO.BankAccountDto;
-import com.movements.movementsmicroservice.client.BankAccountService;
-import com.movements.movementsmicroservice.client.ClientService;
-import com.movements.movementsmicroservice.client.CreditCardService;
-import com.movements.movementsmicroservice.client.CreditService;
+import com.movements.movementsmicroservice.DTO.*;
+import com.movements.movementsmicroservice.client.*;
 import com.movements.movementsmicroservice.exceptions.InvalidPayException;
 import com.movements.movementsmicroservice.exceptions.ResourceNotFoundException;
-import com.movements.movementsmicroservice.DTO.CreditCardDto;
-import com.movements.movementsmicroservice.DTO.CreditDto;
+import com.movements.movementsmicroservice.model.Movement;
 import com.movements.movementsmicroservice.model.Payment;
 import com.movements.movementsmicroservice.repository.PaymentRepository;
+import com.movements.movementsmicroservice.service.MovementService;
 import com.movements.movementsmicroservice.service.PaymentService;
 import com.movements.movementsmicroservice.utils.Numbers;
 import org.slf4j.Logger;
@@ -24,6 +21,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Objects;
+import java.util.Optional;
 
 import static com.movements.movementsmicroservice.model.Payment.TypePayer.*;
 
@@ -35,7 +33,8 @@ public class PaymentServiceImp implements PaymentService {
     private final CreditCardService creditCardService;
     private final CreditService creditService;
     private final PaymentRepository paymentRepository;
-    private final BankAccountService bankAccountService;
+    private final DebitCardService debitCardService;
+    private final MovementService movementService;
 
     private final ClientService clientService;
     private final Clock clock;
@@ -44,13 +43,15 @@ public class PaymentServiceImp implements PaymentService {
                              CreditService creditService,
                              PaymentRepository paymentRepository,
                              ClientService clientService,
-                             BankAccountService bankAccountService,
+                             DebitCardService debitCardService,
+                             MovementService movementService,
                              Clock clock) {
         this.creditCardService = creditCardService;
         this.creditService = creditService;
         this.paymentRepository = paymentRepository;
         this.clientService = clientService;
-        this.bankAccountService = bankAccountService;
+        this.debitCardService = debitCardService;
+        this.movementService = movementService;
         this.clock = clock;
     }
 
@@ -68,14 +69,19 @@ public class PaymentServiceImp implements PaymentService {
     public Mono<Payment> create(Payment payment) {
         return validPayment(payment)
                 .flatMap(paymentValid -> {
-
-                    if (isPayCreditCard(paymentValid)) {
-                        return findAndPayCreditCard(paymentValid);
-                    } else if (isPayCredit(paymentValid)) {
-                        return findAndPayCreditOnly(paymentValid);
+                    if (paymentValid.getTypePayer() == EXTERNAL) {
+                        return payTypeExternal(paymentValid);
                     }
-                    return Mono.error(new InvalidPayException(
-                            "Type payment " + paymentValid.getTypeCreditProduct() + " not supported"));
+                    if (isClientPayer(payment)) {
+                        return existingClient(payment)
+                                .flatMap(this::payTypeExternal);
+                    }
+                    if (isDebitCardPayer(payment)) {
+                        return payCreditWithDebitCard(payment);
+                    }
+                    String message = "The payment is not supported";
+                    log.error(message);
+                    return Mono.error(new InvalidPayException(message));
                 });
     }
 
@@ -94,32 +100,131 @@ public class PaymentServiceImp implements PaymentService {
         return Mono.just(payment);
     }
 
+    private Mono<Payment> payTypeExternal(Payment payment) {
+        if (isPayCreditCard(payment)) {
+            return findAndPayCreditCard(payment);
+        } else if (isPayCredit(payment)) {
+            return findAndPayCreditOnly(payment);
+        }
+        return Mono.error(new InvalidPayException(
+                "Type payment " + payment.getTypeCreditProduct() + " not supported"));
+    }
     private boolean isExternalPayer(Payment payment) {
         return payment.getTypePayer() == EXTERNAL;
     }
-    private Mono<Payment> validClientAndBankAccount(Payment payment) {
-        if (isClientPayer(payment)) {
-            return clientService.findById(payment.getIdPayer())
-                    .flatMap(clientFound -> Mono.just(payment))
-                    .switchIfEmpty(Mono.error(
-                            new InvalidPayException("The client with id: "+payment.getIdPayer()+" not exits.")));
-        }
-//        if (isBankAccountPayer(payment)) {
-//            return bankAccountService.findByIdWithoutMovements(payment.getIdPayer())
-//                    .flatMap(bankAccount -> )
-//        }
-        return Mono.just(payment);
+    private Mono<Payment> existingClient(Payment payment) {
+        return clientService.findById(payment.getIdPayer())
+                .flatMap(clientFound -> Mono.just(payment))
+                .switchIfEmpty(Mono.error(
+                        new InvalidPayException("The client with id: "+payment.getIdPayer()+" not exits.")));
     }
     private boolean isClientPayer(Payment payment) {
         return payment.getTypePayer() == CLIENT;
     }
-    private boolean isBankAccountPayer(Payment payment) {
-        return payment.getTypePayer() == BANK_ACCOUNT;
+    private boolean isDebitCardPayer(Payment payment) {
+        return payment.getTypePayer() == DEBIT_CARD;
     }
 
-//    private Mono<Payment> payCreditWithBankAccount() {
-//
-//    }
+    private Mono<Payment> payCreditWithDebitCard(Payment payment) {
+        if (isPayCreditCard(payment)) {
+            return Mono.zip(getCreditCardById(payment.getIdProductCredit()),
+                    getDebitCardWithAccounts(payment.getIdPayer()))
+                    .flatMap(tuple -> {
+                        CreditCardDto creditCard = tuple.getT1();
+                        DebitCardDto debitCard = tuple.getT2();
+                        if (!Objects.equals(creditCard.getTotalDebt(), payment.getAmount())) {
+                            return Mono.error(new InvalidPayException("The amount of total debt is: "
+                                    + creditCard.getTotalDebt()));
+                        }
+                        return getBankAccountWithBalanceAvailableForPay(debitCard, creditCard.getTotalDebt())
+                                .flatMap(bankAccount ->
+                                        doPayFromBankAccount(bankAccount, payment)
+                                        .flatMap(movement -> payCreditCard(payment, creditCard)));
+
+                    });
+        }
+        if (isPayCredit(payment)) {
+            return Mono.zip(getCreditOnlyById(payment.getIdProductCredit()),
+                    getDebitCardWithAccounts(payment.getIdPayer()))
+                    .flatMap(tuple -> {
+                        CreditDto credit = tuple.getT1();
+                        DebitCardDto debitCard = tuple.getT2();
+                        return isPayCreditValid(payment, credit)
+                                .flatMap(payment1 ->
+                                        getBankAccountWithBalanceAvailableForPay(debitCard,
+                                            payment1.getAmount() + payment1.getPenaltyFee())
+                                            .flatMap(bankAccount -> doPayFromBankAccount(bankAccount, payment)
+                                                       .flatMap(movement -> payCreditOnly(payment1, credit))));
+                    });
+        }
+        String message = "Payments can only be for credit products";
+        log.error(message);
+        return Mono.error(new InvalidPayException(message));
+    }
+    private Optional<BankAccountDto> getPrincipalBankAccount(DebitCardDto debitCard) {
+        return debitCard.getBankAccounts().stream()
+                .filter(bankAccount -> bankAccount.getId().equals(debitCard.getIdPrincipalAccount()))
+                .findFirst();
+    }
+
+    private Mono<DebitCardDto> getDebitCardWithAccounts(String idDebitCard) {
+        return debitCardService.findByIdWithBankAccountsOrderByCreatedAt(idDebitCard)
+                .switchIfEmpty(
+                        Mono.error(new InvalidPayException("Debit card with id: " + idDebitCard + " not exists.")));
+    }
+
+    private Mono<CreditCardDto> getCreditCardById(String idCreditCard) {
+        return creditCardService.findById(idCreditCard)
+                .onErrorResume(error -> {
+                    String message = "Can't get credit card";
+                    log.error(message);
+                    return Mono.error(new InvalidPayException(message));
+                });
+    }
+
+    private Mono<CreditDto> getCreditOnlyById(String idCredit) {
+        return creditService.findById(idCredit)
+                .onErrorResume(error -> {
+                    String message = "Can't get credit";
+                    log.error(message);
+                    return Mono.error(new InvalidPayException(message));
+                });
+    }
+
+    private Mono<BankAccountDto> getBankAccountWithBalanceAvailableForPay(DebitCardDto debitCard,
+                                                                          Double amountDebt) {
+        Optional<BankAccountDto> principalAccount = getPrincipalBankAccount(debitCard);
+        return Mono.justOrEmpty(principalAccount)
+                .switchIfEmpty(Mono.error(
+                        new InvalidPayException("Principal bank account not exists with id: " +
+                                debitCard.getIdPrincipalAccount())))
+                .flatMap(principal -> {
+                    if (principal.getBalance() < amountDebt) {
+                        return Mono.justOrEmpty(
+                                getBankAccountWithGreaterBalanceThanPay(debitCard, amountDebt))
+                                .switchIfEmpty(Mono.error(
+                                        new InvalidPayException(
+                                                "The client does not have bank accounts with available balance")))
+                                .flatMap(Mono::just);
+                    }
+                    return Mono.just(principal);
+                });
+    }
+    private Optional<BankAccountDto> getBankAccountWithGreaterBalanceThanPay(DebitCardDto debitCard, Double amount) {
+        return debitCard.getBankAccounts().stream()
+                .filter(bankAccount -> bankAccount.getBalance() >= amount)
+                .findFirst();
+    }
+
+    private Mono<Movement> doPayFromBankAccount(BankAccountDto bankAccount,
+                                                Payment payment) {
+        Movement withdrawal = new Movement();
+        withdrawal.setTypeMovement(Movement.TypeMovement.PAY_CREDIT);
+        withdrawal.setIdBankAccount(bankAccount.getId());
+        withdrawal.setDescription("Pay with debit card");
+        withdrawal.setAmount(payment.getAmount());
+        return movementService.create(withdrawal);
+    }
 
     @Override
     public Mono<Void> deleteById(String id) {
@@ -178,7 +283,7 @@ public class PaymentServiceImp implements PaymentService {
             return Mono.error(new InvalidPayException("The payment must be exactly: " + totalToPay));
         }
 
-
+        payment.setAmount(credit.getMonthlyFee());
         payment.setPenaltyFee(penaltyFee);
         return Mono.just(payment);
     }
