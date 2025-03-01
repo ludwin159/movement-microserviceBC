@@ -9,6 +9,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -24,6 +26,7 @@ import java.util.Map;
         description = "Gestiona los movimientos de las cuentas bancarias como: Depósito(DEPOSIT) o Retiro(WITHDRAWAL)")
 public class MovementController {
 
+    private final static Logger log = LoggerFactory.getLogger(MovementController.class);
     private final MovementService movementService;
 
     public MovementController(MovementService movementService) {
@@ -149,5 +152,11 @@ public class MovementController {
         return movementService.findAllByDateBetween(
                 DateUtil.parseDateStringToUtc(from, true),
                 DateUtil.parseDateStringToUtc(to, false));
+    }
+
+    @PostMapping("/last-ten-by-bank-accounts")
+    public Mono<List<Movement>> reportLastTenMovements(@RequestBody List<String> idBankAccounts) {
+        log.info("Ingresa a obtener los ultimos 10 movimientos de movimientos");
+        return movementService.getDebitMovementsTopTenByBankAccountIds(idBankAccounts);
     }
 }

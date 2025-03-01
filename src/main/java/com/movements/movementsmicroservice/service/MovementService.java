@@ -21,4 +21,5 @@ public interface MovementService {
     Flux<Movement> getAllMovementsByIdBankAccountAndSortByDate(String bankAccountId);
     Flux<Movement> findAllByDateBetween(LocalDateTime from, LocalDateTime to);
     Mono<Map<String, List<?>>> getBankProductsByIdClient(String idClient);
+    Mono<List<Movement>> getDebitMovementsTopTenByBankAccountIds(List<String> idBankAccounts);
 }

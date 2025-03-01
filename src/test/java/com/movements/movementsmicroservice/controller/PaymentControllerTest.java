@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 @WebFluxTest(PaymentController.class)
@@ -28,6 +29,9 @@ class PaymentControllerTest {
         payment1.setIdProductCredit("CREDIT001");
         payment1.setAmount(30.0);
         payment1.setTypeCreditProduct(Payment.TypeCreditProduct.CREDIT);
+        payment1.setIdPayer("");
+        payment1.setIdPayer("");
+        payment1.setTypePayer(Payment.TypePayer.EXTERNAL);
 
         when(paymentService.update("PAYMENT001", payment1)).thenReturn(Mono.just(payment1));
 

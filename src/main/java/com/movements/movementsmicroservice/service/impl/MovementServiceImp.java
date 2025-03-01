@@ -3,16 +3,16 @@ package com.movements.movementsmicroservice.service.impl;
 import com.movements.movementsmicroservice.client.BankAccountService;
 import com.movements.movementsmicroservice.client.CreditCardService;
 import com.movements.movementsmicroservice.client.CreditService;
-import com.movements.movementsmicroservice.exceptions.InsufficientBalance;
-import com.movements.movementsmicroservice.exceptions.LimitMovementsExceeded;
-import com.movements.movementsmicroservice.exceptions.ResourceNotFoundException;
-import com.movements.movementsmicroservice.exceptions.UnsupportedMovementException;
+import com.movements.movementsmicroservice.client.DebitCardService;
+import com.movements.movementsmicroservice.exceptions.*;
 import com.movements.movementsmicroservice.DTO.BankAccountDto;
 import com.movements.movementsmicroservice.DTO.CreditCardDto;
 import com.movements.movementsmicroservice.DTO.CreditDto;
 import com.movements.movementsmicroservice.model.Movement;
+import com.movements.movementsmicroservice.model.Payment;
 import com.movements.movementsmicroservice.repository.MovementRepository;
 import com.movements.movementsmicroservice.service.MovementService;
+import com.movements.movementsmicroservice.service.PaymentMovementService;
 import com.movements.movementsmicroservice.utils.DateToPayUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +37,8 @@ public class MovementServiceImp implements MovementService {
     private final CreditCardService creditCardService;
     private final MovementRepository movementRepository;
     private final BankAccountService bankAccountService;
+    private final DebitCardService debitCardService;
+    private final PaymentMovementService paymentMovementService;
     private final Clock clock;
 
     public MovementServiceImp(
@@ -44,17 +46,40 @@ public class MovementServiceImp implements MovementService {
             CreditCardService creditCardService,
             MovementRepository movementRepository,
             BankAccountService bankAccountService,
+            DebitCardService debitCardService,
+            PaymentMovementService paymentMovementService,
             Clock clock) {
         this.creditService = creditService;
         this.creditCardService = creditCardService;
         this.movementRepository = movementRepository;
         this.bankAccountService = bankAccountService;
+        this.debitCardService = debitCardService;
+        this.paymentMovementService = paymentMovementService;
         this.clock = clock;
     }
 
     @Override
     public Mono<Movement> create(Movement movement) {
+        if (isWithdrawalDebitCard(movement))
+            return processDebitCardWithdrawal(movement);
         return processBankAccountMovement(movement);
+    }
+    private Mono<Movement> processDebitCardWithdrawal(Movement movement) {
+        return findBankAccountAbleToWithdrawal(movement)
+                .flatMap(this::processBankAccountMovement);
+    }
+    private Mono<Movement> findBankAccountAbleToWithdrawal(Movement movement) {
+        String idDebitCard = movement.getIdBankAccount();
+        return  debitCardService.findByIdWithBankAccountsOrderByCreatedAt(idDebitCard)
+                .flatMap(debitCard ->
+                    paymentMovementService.getBankAccountWithBalanceAvailableForPay(debitCard, movement.getAmount())
+                            .flatMap(bankAccountWithBalance -> {
+                                movement.setIdBankAccount(bankAccountWithBalance.getId());
+                                return Mono.just(movement);
+                            })
+                )
+                .switchIfEmpty(
+                        Mono.error(new InvalidPayException("Debit card with id: " + idDebitCard + " not exists.")));
     }
 
     private Mono<Movement> processBankAccountMovement(Movement movement) {
@@ -239,7 +264,8 @@ public class MovementServiceImp implements MovementService {
     }
 
     private boolean isWithdrawalOrPaymentMovement(Movement movement) {
-        return (movement.getTypeMovement() == WITHDRAWAL) || (movement.getTypeMovement() == PAY_CREDIT);
+        return (movement.getTypeMovement() == WITHDRAWAL) || (movement.getTypeMovement() == PAY_CREDIT)
+                || (movement.getTypeMovement() == WITHDRAWAL_DEBIT);
     }
 
     @Override
@@ -401,4 +427,24 @@ public class MovementServiceImp implements MovementService {
                 .collectList()
                 .flatMap(products -> Mono.just(products.get(0)));
     }
+    private boolean isWithdrawalDebitCard(Movement movement) {
+        return movement.getTypeMovement() == WITHDRAWAL_DEBIT;
+    }
+    private boolean idDebitMovement(Movement movement) {
+        return (movement.getTypeMovement() == PAY_CREDIT) || isWithdrawalDebitCard(movement);
+    }
+
+    @Override
+    public Mono<List<Movement>> getDebitMovementsTopTenByBankAccountIds(List<String> idBankAccounts) {
+        log.info("Obtiene los Top 10 movimientos de las debit card");
+        return movementRepository.findByIdBankAccountInOrderByCreatedAtDesc(idBankAccounts)
+                .filter(this::idDebitMovement)
+                .take(10)
+                .collectList()
+                .map(resultado -> {
+                    log.info("Cantidad de movimientos econtrados: " + resultado.size());
+                    return resultado;
+                });
+    }
+
 }

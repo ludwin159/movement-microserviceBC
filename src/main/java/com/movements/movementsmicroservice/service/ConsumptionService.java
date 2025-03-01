@@ -7,12 +7,13 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 
 public interface ConsumptionService {
-    public Flux<Consumption> getAll();
-    public Mono<Consumption> findById(String id);
-    public Mono<Consumption> create(Consumption document);
-    public Mono<Void> deleteById(String id);
+    Flux<Consumption> getAll();
+    Mono<Consumption> findById(String id);
+    Mono<Consumption> create(Consumption document);
+    Mono<Void> deleteById(String id);
     Mono<Consumption> update(String id, Consumption consumption);
     Flux<Consumption> findAllConsumptionsByIdCreditCardAndSortByDate(String id);
     Flux<Consumption> findByIdCreditCardAndBilledFalse(String idCreditCard);
     Flux<Consumption> saveAll(List<Consumption> consumptions);
+    Mono<List<Consumption>> findLastTenByIdCreditCards(List<String> idCreditCards);
 }

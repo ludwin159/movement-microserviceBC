@@ -6,9 +6,11 @@ import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface MovementRepository extends ReactiveMongoRepository<Movement, String> {
     Flux<Movement> findAllByIdBankAccountAndDateBetween(String bankAccountId, LocalDateTime from, LocalDateTime to);
     Flux<Movement> findAllByDateBetween(LocalDateTime from, LocalDateTime to);
     Flux<Movement> findAllByIdBankAccount(String bankAccountId);
+    Flux<Movement> findByIdBankAccountInOrderByCreatedAtDesc(List<String> idBankAccounts);
 }

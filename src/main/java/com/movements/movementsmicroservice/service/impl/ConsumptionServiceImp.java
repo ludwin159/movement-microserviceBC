@@ -90,4 +90,11 @@ public class ConsumptionServiceImp implements ConsumptionService {
     public Flux<Consumption> saveAll(List<Consumption> consumptions) {
         return consumptionRepository.saveAll(consumptions);
     }
+
+    @Override
+    public Mono<List<Consumption>> findLastTenByIdCreditCards(List<String> idCreditCards) {
+        return consumptionRepository.findByIdCreditCardInOrderByCreatedAtDesc(idCreditCards)
+                .take(10)
+                .collectList();
+    }
 }

@@ -2,15 +2,18 @@ package com.movements.movementsmicroservice.impl;
 
 import com.movements.movementsmicroservice.DTO.BankAccountDto;
 import com.movements.movementsmicroservice.DTO.ClientDto;
+import com.movements.movementsmicroservice.DTO.DebitCardDto;
 import com.movements.movementsmicroservice.client.BankAccountService;
 import com.movements.movementsmicroservice.client.CreditCardService;
 import com.movements.movementsmicroservice.client.CreditService;
+import com.movements.movementsmicroservice.client.DebitCardService;
 import com.movements.movementsmicroservice.exceptions.InsufficientBalance;
 import com.movements.movementsmicroservice.exceptions.LimitMovementsExceeded;
 import com.movements.movementsmicroservice.exceptions.ResourceNotFoundException;
 import com.movements.movementsmicroservice.exceptions.UnsupportedMovementException;
 import com.movements.movementsmicroservice.model.Movement;
 import com.movements.movementsmicroservice.repository.MovementRepository;
+import com.movements.movementsmicroservice.service.PaymentMovementService;
 import com.movements.movementsmicroservice.service.impl.MovementServiceImp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +48,10 @@ class MovementServiceImpTest {
     private BankAccountService bankAccountService;
     @Mock
     private MovementRepository movementRepository;
+    @Mock
+    private DebitCardService debitCardService;
+    @Mock
+    private PaymentMovementService paymentMovementService;
     @Mock
     private Clock clock;
     private Movement movement1, movement2;
@@ -157,9 +164,14 @@ class MovementServiceImpTest {
     @DisplayName("Create a Movement in fixed term account when the date is not correct")
     void createFixedTermMovementInIncorrectDayTest() {
 
+        ZoneId zone = ZoneId.of("UTC");
+        Instant instant = Instant.parse("2025-02-20T23:55:00Z");
+        Clock fixedClock = Clock.fixed(instant, zone);
+        when(clock.instant()).thenReturn(fixedClock.instant());
+        when(clock.getZone()).thenReturn(fixedClock.getZone());
         String idBankAccount = "IDbank003";
         movement1.setIdBankAccount(idBankAccount);
-        int numberDayIncorrect = LocalDate.now().getDayOfMonth() - 1;
+        int numberDayIncorrect = LocalDate.now(clock).getDayOfMonth() - 1;
         bankAccount3.setExpirationDate(numberDayIncorrect);
         // Given
         when(bankAccountService.findById(movement1.getIdBankAccount())).thenReturn(Mono.just(bankAccount3));
@@ -270,7 +282,7 @@ class MovementServiceImpTest {
 
     @Test
     @DisplayName("Create a Movement in fixed term account when that has already movements")
-    void createfixedTermMovementExceededTest() {
+    void createFixedTermMovementExceededTest() {
         String idBankAccount = "IDbank003";
         movement1.setIdBankAccount(idBankAccount);
         int numberDayCorrect = LocalDate.now().getDayOfMonth();
@@ -633,6 +645,45 @@ class MovementServiceImpTest {
         StepVerifier.create(movementDeleted)
                 .expectNextCount(2)
                 .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("Create a Movement type withdrawal debit card")
+    void createWithdrawalDebitCardMovementTest() {
+        ZoneId zone = ZoneId.of("UTC");
+        Instant instant = Instant.parse("2025-02-20T23:55:00Z");
+        Clock fixedClock = Clock.fixed(instant, zone);
+        when(clock.instant()).thenReturn(fixedClock.instant());
+        when(clock.getZone()).thenReturn(fixedClock.getZone());
+
+        DebitCardDto debitCard1 = new DebitCardDto();
+        debitCard1.setId("DEBITCARD001");
+        debitCard1.setIdClient("clientN001");
+        debitCard1.setIdPrincipalAccount(bankAccount1.getId());
+        String idBankAccount = "IDbank002";
+        movement2.setTypeMovement(WITHDRAWAL_DEBIT);
+        movement2.setIdBankAccount(debitCard1.getId());
+        // Given
+        when(bankAccountService.findById("IDbank001")).thenReturn(Mono.just(bankAccount2));
+        when(bankAccountService.update(idBankAccount, bankAccount2)).thenReturn(Mono.just(bankAccount2));
+        when(movementRepository.save(any(Movement.class))).thenReturn(Mono.just(movement2));
+        when(movementRepository.findAllByIdBankAccountAndDateBetween(anyString(), any(), any()))
+                .thenReturn(Flux.just(movement1, movement2));
+        when(debitCardService.findByIdWithBankAccountsOrderByCreatedAt(debitCard1.getId()))
+                .thenReturn(Mono.just(debitCard1));
+        when(paymentMovementService.getBankAccountWithBalanceAvailableForPay(debitCard1, movement2.getAmount()))
+                .thenReturn(Mono.just(bankAccount1));
+        // When
+        Mono<Movement> movementMono = movementService.create(movement2);
+        // Then
+        StepVerifier.create(movementMono)
+                .assertNext(element -> {
+                    assertThat(element.getId()).isEqualTo(movement2.getId());
+                    assertThat(element.getTypeMovement()).isEqualTo(WITHDRAWAL_DEBIT);
+                })
+                .verifyComplete();
+        verify(bankAccountService).update(idBankAccount, bankAccount2);
+        verify(movementRepository).save(movement2);
     }
 
 }

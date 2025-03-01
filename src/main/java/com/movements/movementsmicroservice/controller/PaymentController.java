@@ -9,11 +9,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import javax.validation.Valid;
+import java.util.List;
 
 @RestController
 @RequestMapping("/payments")
@@ -22,6 +25,7 @@ import javax.validation.Valid;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final static Logger log = LoggerFactory.getLogger(PaymentController.class);
 
     public PaymentController(PaymentService paymentService) {
         this.paymentService = paymentService;
@@ -100,5 +104,16 @@ public class PaymentController {
     public Flux<Payment> getAllByIdProductCredit(
             @Parameter(description = "ID del producto de crédito") @PathVariable String idProductCredit) {
         return paymentService.findAllPaymentByIdProductCreditAndSortByDate(idProductCredit);
+    }
+
+    @PostMapping("/get-last-ten-payments")
+    public Mono<List<Payment>> lastTenPaymentsByIdCreditCard(@RequestBody List<String> idCreditCards) {
+        log.info("Ingresa a obtener los ultimos 10 movimientos de pagos");
+        return paymentService.findLastTenPaymentsByIdCredit(idCreditCards)
+                .map(response -> {
+                    log.info("Obteniendo respuesta para devolver de pagos: " + response.size());
+                    log.info(response.toString());
+                    return response;
+                });
     }
 }

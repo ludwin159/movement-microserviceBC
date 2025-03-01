@@ -9,7 +9,6 @@ import java.util.List;
 public class DebitCardDto {
     private String id;
     private String idClient;
-    private String pin;
     private String idPrincipalAccount;
     private List<BankAccountDto> bankAccounts;
     public DebitCardDto() {

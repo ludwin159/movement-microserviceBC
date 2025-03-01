@@ -2,6 +2,7 @@ package com.movements.movementsmicroservice.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import javax.validation.constraints.Min;
@@ -36,9 +37,10 @@ public class Payment {
     private Integer yearCorresponding;
 
     private Double penaltyFee;
+    @CreatedDate
+    private LocalDateTime createdAt;
 
     @NotNull
-    @Size(min = 8)
     private String idPayer;
     @NotNull
     private TypePayer typePayer;
@@ -51,5 +53,6 @@ public class Payment {
     }
     public Payment() {
         this.datePayment = LocalDateTime.now();
+        this.penaltyFee = 0.0;
     }
 }

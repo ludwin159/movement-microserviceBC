@@ -117,6 +117,11 @@ public class ConsumptionController {
     public Flux<Consumption> saveAll(@Valid @RequestBody List<Consumption> consumptions) {
         return consumptionService.saveAll(consumptions);
     }
+
+    @PostMapping("/find-last-ten-credit-card")
+    public Mono<List<Consumption>> findLastTenConsumptions(@RequestBody List<String> idConsumptions) {
+        return consumptionService.findLastTenByIdCreditCards(idConsumptions);
+    }
 }
 
 

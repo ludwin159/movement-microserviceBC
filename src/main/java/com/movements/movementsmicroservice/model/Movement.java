@@ -3,6 +3,7 @@ package com.movements.movementsmicroservice.model;
 
 import lombok.Builder;
 import lombok.Data;
+import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -43,9 +44,11 @@ public class Movement {
 
     private String idTransfer;
 
+    @CreatedDate
+    private LocalDateTime createdAt;
 
     public static enum TypeMovement {
-        DEPOSIT, WITHDRAWAL, TRANSFER, UNSUPPORTED, PAY_CREDIT
+        DEPOSIT, WITHDRAWAL, TRANSFER, UNSUPPORTED, PAY_CREDIT, WITHDRAWAL_DEBIT
     }
 
     public Movement() {

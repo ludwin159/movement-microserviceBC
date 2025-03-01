@@ -8,6 +8,7 @@ import com.movements.movementsmicroservice.model.Movement;
 import com.movements.movementsmicroservice.model.Payment;
 import com.movements.movementsmicroservice.repository.PaymentRepository;
 import com.movements.movementsmicroservice.service.MovementService;
+import com.movements.movementsmicroservice.service.PaymentMovementService;
 import com.movements.movementsmicroservice.service.PaymentService;
 import com.movements.movementsmicroservice.utils.Numbers;
 import org.slf4j.Logger;
@@ -18,8 +19,10 @@ import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -35,6 +38,7 @@ public class PaymentServiceImp implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final DebitCardService debitCardService;
     private final MovementService movementService;
+    private final PaymentMovementService paymentMovementService;
 
     private final ClientService clientService;
     private final Clock clock;
@@ -45,6 +49,7 @@ public class PaymentServiceImp implements PaymentService {
                              ClientService clientService,
                              DebitCardService debitCardService,
                              MovementService movementService,
+                             PaymentMovementService paymentMovementService,
                              Clock clock) {
         this.creditCardService = creditCardService;
         this.creditService = creditService;
@@ -52,6 +57,7 @@ public class PaymentServiceImp implements PaymentService {
         this.clientService = clientService;
         this.debitCardService = debitCardService;
         this.movementService = movementService;
+        this.paymentMovementService = paymentMovementService;
         this.clock = clock;
     }
 
@@ -136,7 +142,8 @@ public class PaymentServiceImp implements PaymentService {
                             return Mono.error(new InvalidPayException("The amount of total debt is: "
                                     + creditCard.getTotalDebt()));
                         }
-                        return getBankAccountWithBalanceAvailableForPay(debitCard, creditCard.getTotalDebt())
+                        return paymentMovementService.getBankAccountWithBalanceAvailableForPay(debitCard,
+                                        creditCard.getTotalDebt())
                                 .flatMap(bankAccount ->
                                         doPayFromBankAccount(bankAccount, payment)
                                         .flatMap(movement -> payCreditCard(payment, creditCard)));
@@ -151,7 +158,7 @@ public class PaymentServiceImp implements PaymentService {
                         DebitCardDto debitCard = tuple.getT2();
                         return isPayCreditValid(payment, credit)
                                 .flatMap(payment1 ->
-                                        getBankAccountWithBalanceAvailableForPay(debitCard,
+                                        paymentMovementService.getBankAccountWithBalanceAvailableForPay(debitCard,
                                             payment1.getAmount() + payment1.getPenaltyFee())
                                             .flatMap(bankAccount -> doPayFromBankAccount(bankAccount, payment)
                                                        .flatMap(movement -> payCreditOnly(payment1, credit))));
@@ -161,11 +168,11 @@ public class PaymentServiceImp implements PaymentService {
         log.error(message);
         return Mono.error(new InvalidPayException(message));
     }
-    private Optional<BankAccountDto> getPrincipalBankAccount(DebitCardDto debitCard) {
-        return debitCard.getBankAccounts().stream()
-                .filter(bankAccount -> bankAccount.getId().equals(debitCard.getIdPrincipalAccount()))
-                .findFirst();
-    }
+//    private Optional<BankAccountDto> getPrincipalBankAccount(DebitCardDto debitCard) {
+//        return debitCard.getBankAccounts().stream()
+//                .filter(bankAccount -> bankAccount.getId().equals(debitCard.getIdPrincipalAccount()))
+//                .findFirst();
+//    }
 
     private Mono<DebitCardDto> getDebitCardWithAccounts(String idDebitCard) {
         return debitCardService.findByIdWithBankAccountsOrderByCreatedAt(idDebitCard)
@@ -191,30 +198,30 @@ public class PaymentServiceImp implements PaymentService {
                 });
     }
 
-    private Mono<BankAccountDto> getBankAccountWithBalanceAvailableForPay(DebitCardDto debitCard,
-                                                                          Double amountDebt) {
-        Optional<BankAccountDto> principalAccount = getPrincipalBankAccount(debitCard);
-        return Mono.justOrEmpty(principalAccount)
-                .switchIfEmpty(Mono.error(
-                        new InvalidPayException("Principal bank account not exists with id: " +
-                                debitCard.getIdPrincipalAccount())))
-                .flatMap(principal -> {
-                    if (principal.getBalance() < amountDebt) {
-                        return Mono.justOrEmpty(
-                                getBankAccountWithGreaterBalanceThanPay(debitCard, amountDebt))
-                                .switchIfEmpty(Mono.error(
-                                        new InvalidPayException(
-                                                "The client does not have bank accounts with available balance")))
-                                .flatMap(Mono::just);
-                    }
-                    return Mono.just(principal);
-                });
-    }
-    private Optional<BankAccountDto> getBankAccountWithGreaterBalanceThanPay(DebitCardDto debitCard, Double amount) {
-        return debitCard.getBankAccounts().stream()
-                .filter(bankAccount -> bankAccount.getBalance() >= amount)
-                .findFirst();
-    }
+//    private Mono<BankAccountDto> getBankAccountWithBalanceAvailableForPay(DebitCardDto debitCard,
+//                                                                          Double amountDebt) {
+//        Optional<BankAccountDto> principalAccount = getPrincipalBankAccount(debitCard);
+//        return Mono.justOrEmpty(principalAccount)
+//                .switchIfEmpty(Mono.error(
+//                        new InvalidPayException("Principal bank account not exists with id: " +
+//                                debitCard.getIdPrincipalAccount())))
+//                .flatMap(principal -> {
+//                    if (principal.getBalance() < amountDebt) {
+//                        return Mono.justOrEmpty(
+//                                getBankAccountWithGreaterBalanceThanPay(debitCard, amountDebt))
+//                                .switchIfEmpty(Mono.error(
+//                                        new InvalidPayException(
+//                                                "The client does not have bank accounts with available balance")))
+//                                .flatMap(Mono::just);
+//                    }
+//                    return Mono.just(principal);
+//                });
+//    }
+//    private Optional<BankAccountDto> getBankAccountWithGreaterBalanceThanPay(DebitCardDto debitCard, Double amount) {
+//        return debitCard.getBankAccounts().stream()
+//                .filter(bankAccount -> bankAccount.getBalance() >= amount)
+//                .findFirst();
+//    }
 
     private Mono<Movement> doPayFromBankAccount(BankAccountDto bankAccount,
                                                 Payment payment) {
@@ -223,6 +230,9 @@ public class PaymentServiceImp implements PaymentService {
         withdrawal.setIdBankAccount(bankAccount.getId());
         withdrawal.setDescription("Pay with debit card");
         withdrawal.setAmount(payment.getAmount());
+        withdrawal.setIdTransfer("");
+        withdrawal.setDate(LocalDateTime.now(clock));
+        withdrawal.setIdBankAccountTransfer("");
         return movementService.create(withdrawal);
     }
 
@@ -256,8 +266,8 @@ public class PaymentServiceImp implements PaymentService {
         }
 
         LocalDate dateNewPayment = payment.getDatePayment().toLocalDate();
-        int monthPay = dateNewPayment.getMonthValue();
-        int yearPay = dateNewPayment.getYear();
+        int monthPay = payment.getMonthCorresponding();
+        int yearPay = payment.getYearCorresponding();
 
         boolean paymentExisting = credit.getPayments().stream()
                 .anyMatch(p -> p.getMonthCorresponding() == monthPay && p.getYearCorresponding() == yearPay);
@@ -284,7 +294,7 @@ public class PaymentServiceImp implements PaymentService {
         }
 
         payment.setAmount(credit.getMonthlyFee());
-        payment.setPenaltyFee(penaltyFee);
+        payment.setPenaltyFee(Numbers.redondear(penaltyFee));
         return Mono.just(payment);
     }
     private LocalDate getDateLimitExpected(CreditDto credit, int month, int year) {
@@ -324,8 +334,8 @@ public class PaymentServiceImp implements PaymentService {
 
     private Mono<Payment> payCreditOnly(Payment payment, CreditDto credit) {
         credit.setPendingBalance(credit.getPendingBalance() - payment.getAmount());
-        payment.setMonthCorresponding(payment.getDatePayment().getMonthValue());
-        payment.setYearCorresponding(payment.getDatePayment().getYear());
+        payment.setMonthCorresponding(payment.getMonthCorresponding());
+        payment.setYearCorresponding(payment.getYearCorresponding());
         return creditService.update(credit.getId(), credit)
                 .then(paymentRepository.save(payment));
     }
@@ -344,6 +354,17 @@ public class PaymentServiceImp implements PaymentService {
     public Flux<Payment> findAllPaymentByIdProductCreditAndSortByDate(String idProductCredit) {
         return paymentRepository.findAllByIdProductCredit(idProductCredit)
                 .sort(Comparator.comparing(Payment::getDatePayment).reversed());
+    }
+
+    @Override
+    public Mono<List<Payment>> findLastTenPaymentsByIdCredit(List<String> idCreditCards) {
+        return paymentRepository.findByIdProductCreditInOrderByCreatedAtDesc(idCreditCards)
+                .take(10)
+                .collectList()
+                .flatMap(lista -> {
+                    System.out.println(lista);
+                    return Mono.just(lista);
+                });
     }
 
 }
