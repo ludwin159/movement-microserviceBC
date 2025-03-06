@@ -213,7 +213,6 @@
 					</execution>
 				</executions>
 				<configuration>
-					<!--<configLocation>${basedir}/src/main/resources/checkstyle/checkstyle.xml</configLocation>-->
 					<configLocation>checkstyle.xml</configLocation>
 					<encoding>UTF-8</encoding>
 					<consoleOutput>true</consoleOutput>
@@ -221,11 +220,6 @@
 					<includeTestSourceDirectory>true</includeTestSourceDirectory>
 					<logViolationsToConsole>true</logViolationsToConsole>
 					<violationSeverity>warning</violationSeverity>
-					<!--
-                    <excludes>
-                       com/omernaci/checkstyleexample/CheckstyleExampleApplication.java
-                    </excludes>
-                    -->
 				</configuration>
 				<dependencies>
 					<dependency>
